@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Send to Family Vault</title>
+<style>
+  :root { --bg:#faf8f5; --fg:#1d1b19; --muted:#6f6a64; --card:#fff; --line:#e6e1da; --accent:#2f6f5e; --accent-fg:#fff; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161513; --fg:#f2eee8; --muted:#a09a92; --card:#201e1b; --line:#34312d; --accent:#5fb89f; --accent-fg:#0d1512; --bad:#f2b8b5; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.4 -apple-system, system-ui, sans-serif; padding:max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+  main { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 8px 0 4px; }
+  p { margin: 6px 0; color: var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:16px 0; }
+  label { display:block; font-weight:600; margin-bottom:8px; }
+  input[type=text] { width:100%; font-size:17px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .chip { border:1px solid var(--line); background:var(--bg); color:var(--fg); padding:8px 14px; border-radius:999px; font-size:15px; }
+  .chip.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  button.main { width:100%; padding:16px; border:0; border-radius:12px; background:var(--accent); color:var(--accent-fg); font-size:18px; font-weight:600; }
+  button.main:disabled { opacity:.45; }
+  .bar { height:10px; border-radius:6px; background:var(--line); overflow:hidden; margin:12px 0 6px; }
+  .bar > i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .err { color:var(--bad); font-size:15px; }
+  .big { font-size:30px; font-weight:700; color:var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Send to Family Vault</h1>
+  <p>Photos and videos go straight to the laptop over Wi-Fi. Anything sent before is skipped.</p>
+
+  <div class="card">
+    <input id="pick" type="file" accept="image/*,video/*" multiple hidden>
+    <button class="main" id="choose">Choose photos &amp; videos</button>
+    <p id="last"></p>
+    <p id="hint">Tap Select, then Select All. You will see how many are new before anything is sent.</p>
+  </div>
+
+  <div class="card" id="progress" hidden>
+    <div class="big" id="count"></div>
+    <div class="bar"><i id="fill"></i></div>
+    <p id="status"></p>
+    <button class="main" id="go" hidden>Upload</button>
+    <p class="err" id="errors"></p>
+    <p>Keep this page open and the screen on while it uploads.</p>
+  </div>
+</main>
+
+<script>
+(function () {
+  var token = location.pathname.split('/')[2];
+  var base = '/u/' + token;
+  var $ = function (id) { return document.getElementById(id); };
+  $('choose').onclick = function () { $('pick').click(); };
+
+  var wake = null;
+  function keepAwake() { try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { wake = l; }); } catch (e) {} }
+
+  function send(file, person, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var x = new XMLHttpRequest();
+      x.open('POST', base + '/file?name=' + encodeURIComponent(file.name) + '&size=' + file.size + '&lm=' + file.lastModified + '&person=' + encodeURIComponent(person));
+      x.setRequestHeader('Content-Type', 'application/octet-stream');
+      x.upload.onprogress = function (e) { if (e.lengthComputable) onProgress(e.loaded); };
+      x.onload = function () { x.status === 200 ? resolve() : reject(new Error((JSON.parse(x.responseText || '{}').error) || ('Error ' + x.status))); };
+      x.onerror = function () { reject(new Error('Connection lost')); };
+      x.send(file);
+    });
+  }
+
+  fetch(base + '/last').then(function (r) { return r.json(); }).then(function (l) {
+    if (!l.total || !l.lastAt) return;
+    var when = new Date(l.lastAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    $('last').textContent = 'Last upload: ' + when + ' · ' + l.lastCount + ' files';
+  }).catch(function () {});
+
+  var queue = [], skipped = 0;
+  var mb = function (b) { return b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB'; };
+
+  // Step 1: check what is new and show the number. Nothing is sent yet.
+  $('pick').onchange = async function () {
+    var files = Array.prototype.slice.call(this.files || []);
+    this.value = '';
+    if (!files.length) return;
+    $('progress').hidden = false; $('go').hidden = true; $('errors').textContent = '';
+    $('count').textContent = 'Checking…'; $('status').textContent = ''; $('fill').style.width = '0';
+    try {
+      var res = await fetch(base + '/check', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: files.map(function (f) { return { name: f.name, size: f.size, lastModified: f.lastModified }; }) }) });
+      queue = (await res.json()).need.map(function (i) { return files[i]; });
+      skipped = files.length - queue.length;
+      if (!queue.length) { $('count').textContent = 'Nothing new'; $('status').textContent = 'All ' + files.length + ' are already on the laptop.'; return; }
+      var bytes = queue.reduce(function (s, f) { return s + f.size; }, 0);
+      $('count').textContent = queue.length + ' new';
+      $('status').textContent = skipped ? skipped + ' already sent will be skipped · ' + mb(bytes) : mb(bytes);
+      $('go').textContent = 'Upload ' + queue.length;
+      $('go').hidden = false;
+    } catch (e) {
+      $('count').textContent = 'Stopped';
+      $('errors').textContent = 'Could not reach the laptop: ' + e.message + '. Check you are on the same Wi-Fi, then try again.';
+    }
+  };
+
+  // Step 2: send them.
+  $('go').onclick = async function () {
+    var need = queue, person = 'Phone';
+    if (!need.length) return;
+    $('go').hidden = true; $('choose').disabled = true; $('errors').textContent = '';
+    keepAwake();
+    try {
+      var totalBytes = need.reduce(function (s, f) { return s + f.size; }, 0), doneBytes = 0, ok = 0, failed = [];
+      for (var i = 0; i < need.length; i++) {
+        var f = need[i];
+        $('count').textContent = (ok + failed.length + 1) + ' of ' + need.length;
+        $('status').textContent = f.name;
+        try {
+          await send(f, person, function (loaded) { $('fill').style.width = Math.min(100, (doneBytes + loaded) / totalBytes * 100) + '%'; });
+          ok++;
+        } catch (e) { failed.push(f.name + ': ' + e.message); }
+        doneBytes += f.size;
+        $('fill').style.width = Math.min(100, doneBytes / totalBytes * 100) + '%';
+      }
+      await fetch(base + '/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ copied: ok, skipped: skipped, person: person }) });
+      queue = [];
+      $('count').textContent = 'Done: ' + ok + ' sent';
+      $('status').textContent = skipped ? skipped + ' already on the laptop were skipped.' : 'All sent.';
+      if (failed.length) $('errors').textContent = failed.length + ' failed. Pick them again to retry. ' + failed.slice(0, 3).join(' | ');
+    } catch (e) {
+      $('count').textContent = 'Stopped';
+      $('errors').textContent = 'Could not reach the laptop: ' + e.message + '. Check you are on the same Wi-Fi, then try again.';
+    } finally {
+      $('choose').disabled = false;
+      if (wake) { try { wake.release(); } catch (e) {} wake = null; }
+    }
+  };
+})();
+</script>
+</body>
+</html>

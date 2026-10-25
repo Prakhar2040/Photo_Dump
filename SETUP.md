@@ -1,0 +1,48 @@
+# Family Vault – setup on a new laptop
+
+Family Vault is a local photo archive: a Node API (port 4000), a web app (port 8080) and a phone-upload page (port 4001, only while switched on). Nothing leaves your network. Face finding is done by digiKam.
+
+## Option A – the packaged build (easiest, no Node needed)
+
+1. Get `FamilyVault.zip` (built by `node packaging/package.mjs`; it is not stored in git) and extract it somewhere permanent.
+2. Install [digiKam](https://www.digikam.org), open it once.
+3. Double-click **Start Family Vault.bat**. The browser opens at http://localhost:8080.
+4. In digiKam, add the collection folder `<FamilyVault folder>\Family Archive`, scan, then run face detection.
+5. Copy your existing photos into `Family Archive` (or change **Archive folder** in the app).
+
+All paths are relative to the folder, so it can be moved or copied freely.
+
+## Option B – from this repository (development)
+
+Needs Node 20+ and Git.
+
+```
+git clone https://github.com/Prakhar2040/Photo_Dump.git
+cd Photo_Dump
+cd backend  && npm install && cd ..
+cd frontend && npm install && cd ..
+start.bat
+```
+
+- Photos go in `Family Archive/` next to `backend/` (created on first use), or set `ARCHIVE_ROOT`.
+- App data (names, settings, upload history) is created in `backend/data/` on first run. It is git-ignored; copy that folder across if you want to keep names and settings.
+- Face models: open digiKam once and run face detection so its models exist in `%LOCALAPPDATA%\digikam\facesengine` (needed only to build the package).
+
+## Sending photos from a phone (Android or iPhone)
+
+1. In the app open **Import & Backup** and switch on phone upload. Allow Node.js on **Private networks** if Windows asks.
+2. Phone on the same Wi-Fi (not guest Wi-Fi). Scan the QR code, open the link.
+3. Tap **Choose photos & videos**, select all, **Upload**. Keep the page open and the screen on.
+4. On Android, if some photos are missing, choose *Browse/Files* and pick the Camera folder instead of the Photo Picker; this also keeps location data.
+
+Files already sent are skipped. Each file keeps its real capture date (EXIF, video metadata, or a date in the file name) and lands in `Family Archive/Imports/<year>-Q<n>/`.
+
+## Back up
+
+Copy the whole `Family Archive` folder, or use **Import & Backup > Back up your archive**. Also keep `data/` (packaged build) or `backend/data/` (dev) to preserve names and settings.
+
+## Troubleshooting
+
+- **Port in use**: it is already running; close the old windows.
+- **Phone can't open the link**: same Wi-Fi, upload switched on, Node.js allowed on Private networks.
+- **Wrong date on a photo**: it has no date inside it; fix it in digiKam.

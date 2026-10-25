@@ -1,0 +1,9 @@
+node_modules/
+release/
+frontend/.output/
+.vite/
+*.log
+# personal data: never commit
+Family Archive/
+test-data/
+backend/data/
