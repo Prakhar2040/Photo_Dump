@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -16,7 +17,10 @@ import { DATA_DIR, getSettings, getIndex, invalidateIndex, faceResults, unnamedC
 //   score >= suggestThreshold -> shown as a possible match ("maybe") but not counted
 // Nothing is written to your photos or to digiKam.
 
-const DIGIKAM_DIR = path.join(process.env.LOCALAPPDATA || '', 'digikam');
+// digiKam's folders: %LOCALAPPDATA% on Windows; ~/.local/share and ~/.config (XDG) on Linux.
+const DATA_HOME = process.env.LOCALAPPDATA || process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
+const CONFIG_HOME = process.env.LOCALAPPDATA || process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+const DIGIKAM_DIR = path.join(DATA_HOME, 'digikam');
 // The two face models ship with the app (../models); otherwise use the copies digiKam downloaded.
 const MODEL_DIRS = [process.env.MODELS_DIR, fileURLToPath(new URL('../models', import.meta.url)), path.join(DIGIKAM_DIR, 'facesengine')].filter(Boolean);
 const findModel = (name) => MODEL_DIRS.map((d) => path.join(d, name)).find((p) => existsSync(p)) ?? path.join(MODEL_DIRS.at(-1), name);
@@ -26,11 +30,11 @@ const MODEL = process.env.SFACE_MODEL || findModel('face_recognition_sface_2021d
 function digikamDb() {
   if (process.env.DIGIKAM_DB) return process.env.DIGIKAM_DB;
   try {
-    const rc = readFileSync(path.join(process.env.LOCALAPPDATA || '', 'digikamrc'), 'utf8');
+    const rc = readFileSync(path.join(CONFIG_HOME, 'digikamrc'), 'utf8');
     const dir = /^Database Name=(.+)$/m.exec(rc)?.[1]?.trim();
     if (dir) return path.join(dir, 'digikam4.db');
   } catch { /* digiKam not set up yet */ }
-  return 'C:/DigiCam Images/digikam4.db';
+  return process.platform === 'win32' ? 'C:/DigiCam Images/digikam4.db' : path.join(os.homedir(), 'Pictures', 'digikam4.db');
 }
 const DB_FILE = digikamDb();
 const RESULTS_FILE = path.join(DATA_DIR, 'faces.json');

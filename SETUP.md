@@ -46,3 +46,17 @@ Copy the whole `Family Archive` folder, or use **Import & Backup > Back up your 
 - **Port in use**: it is already running; close the old windows.
 - **Phone can't open the link**: same Wi-Fi, upload switched on, Node.js allowed on Private networks.
 - **Wrong date on a photo**: it has no date inside it; fix it in digiKam.
+
+## Linux
+
+Works with Node 20+. There is no `start.bat`; start the two parts yourself:
+
+```
+cd backend  && npm install && npm start      # API on :4000
+cd frontend && npm install && npx vite dev   # web app on :8080
+```
+
+- Install digiKam from your package manager (`digikam` must be on the PATH, or set `DIGIKAM_EXE` to its full path). The app then detects it, can open it after an import, and reads its settings from `~/.config/digikamrc` and its face models from `~/.local/share/digikam`.
+- If digiKam keeps its database somewhere unusual, set `DIGIKAM_DB` to the full path of `digikam4.db`. Models can also be pointed to with `MODELS_DIR`.
+- The Flatpak/Snap versions of digiKam are not detected; use the native package or set `DIGIKAM_EXE`.
+- On Linux digiKam opens in a normal window (it cannot be started minimized).

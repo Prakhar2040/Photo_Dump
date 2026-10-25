@@ -409,23 +409,38 @@ app.get('/api/files/:id/raw', h(async (req, res) => {
 const run = promisify(execFile);
 
 // ---------- digiKam launcher ----------
-// Fixed install path only (override with DIGIKAM_EXE); the API can't point this at another program.
-const DIGIKAM_EXE = process.env.DIGIKAM_EXE || 'C:/Program Files/digiKam/digikam.exe';
+// Fixed program only (override with DIGIKAM_EXE); the API can't point this at another program.
+// Windows: the usual install folder. Linux/macOS: "digikam" on the PATH.
+const WIN = process.platform === 'win32';
+const DIGIKAM_EXE = process.env.DIGIKAM_EXE || (WIN ? 'C:/Program Files/digiKam/digikam.exe' : 'digikam');
+async function digikamInstalled() {
+  if (WIN || path.isAbsolute(DIGIKAM_EXE)) return fs.stat(DIGIKAM_EXE).then(() => true, () => false);
+  return run('which', [DIGIKAM_EXE]).then(() => true, () => false);
+}
 async function digikamRunning() {
-  const { stdout } = await run('tasklist', ['/FI', 'IMAGENAME eq digikam.exe', '/NH']).catch(() => ({ stdout: '' }));
-  return /digikam.exe/i.test(stdout);
+  if (WIN) {
+    const { stdout } = await run('tasklist', ['/FI', 'IMAGENAME eq digikam.exe', '/NH']).catch(() => ({ stdout: '' }));
+    return /digikam.exe/i.test(stdout);
+  }
+  return run('pgrep', ['-x', 'digikam']).then(() => true, () => false);
 }
 async function launchDigikam() {
   if (await digikamRunning()) return { launched: false, reason: 'already running' };
-  if (!(await fs.stat(DIGIKAM_EXE).then(() => true, () => false))) return { launched: false, reason: 'digiKam not found' };
-  // Start minimized so it works in the background without jumping in front of the app (digiKam finds faces while minimized).
-  spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:DK_EXE -WindowStyle Minimized'], {
-    detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, DK_EXE: path.resolve(DIGIKAM_EXE) },
-  }).unref();
+  if (!(await digikamInstalled())) return { launched: false, reason: 'digiKam not found' };
+  if (WIN) {
+    // Start minimized so it works in the background without jumping in front of the app (digiKam finds faces while minimized).
+    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:DK_EXE -WindowStyle Minimized'], {
+      detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, DK_EXE: path.resolve(DIGIKAM_EXE) },
+    }).unref();
+  } else {
+    const child = spawn(DIGIKAM_EXE, [], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {}); // a missing binary must not crash the API
+    child.unref();
+  }
   return { launched: true };
 }
 app.post('/api/digikam/open', h(async (_q, res) => res.json(await launchDigikam())));
-app.get('/api/digikam/status', h(async (_q, res) => res.json({ running: await digikamRunning(), installed: await fs.stat(DIGIKAM_EXE).then(() => true, () => false) })));
+app.get('/api/digikam/status', h(async (_q, res) => res.json({ running: await digikamRunning(), installed: await digikamInstalled() })));
 const thumbDir = path.join(DATA_DIR, 'thumbs');
 
 /** First-second frame of a video as a JPEG buffer (cached on disk by file id + mtime). */
