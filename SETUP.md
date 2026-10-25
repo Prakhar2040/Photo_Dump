@@ -60,3 +60,16 @@ cd frontend && npm install && npx vite dev   # web app on :8080
 - If digiKam keeps its database somewhere unusual, set `DIGIKAM_DB` to the full path of `digikam4.db`. Models can also be pointed to with `MODELS_DIR`.
 - The Flatpak/Snap versions of digiKam are not detected; use the native package or set `DIGIKAM_EXE`.
 - On Linux digiKam opens in a normal window (it cannot be started minimized).
+
+## App on Linux, digiKam on a Windows PC
+
+The two only share files, so this works without any code link:
+
+1. Share `Family Archive` from the Linux machine (Samba) and add that share as a collection in digiKam on Windows.
+2. In the app, turn off **autoLaunchDigikam** (digiKam is not on the same computer, so it is simply skipped anyway). After an import, open digiKam on the Windows PC and let it re-scan, then run face detection.
+3. Names you give in the app are written to the `.xmp` sidecars next to the photos, so digiKam sees them through the share (Item > Reread Metadata from File).
+4. To also use the faces digiKam found, make its database reachable from Linux (share or copy `digikam4.db`, ideally while digiKam is closed) and set:
+   - `DIGIKAM_DB` = path to that `digikam4.db`
+   - `DIGIKAM_ALBUM_ROOT` = (optional) the end of the collection's path as digiKam stores it, e.g. `Family Archive`. If unset, the app matches the same path, then the same folder name, then the only collection.
+5. Without a database file the app works normally; it just has no digiKam faces to read.
+6. Put the two face models on the Linux machine and set `MODELS_DIR` to their folder.

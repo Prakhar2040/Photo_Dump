@@ -96,7 +96,7 @@ function PhoneUploadCard() {
           {on && (
             <p>
               <span className="font-medium">{info?.received.files ?? 0}</span> received this session
-              {(info?.received.files ?? 0) > 0 && <span className="text-muted-foreground"> ({formatBytes(info?.received.bytes ?? 0)}). digiKam opens when a batch finishes.</span>}
+              {(info?.received.files ?? 0) > 0 && <span className="text-muted-foreground"> ({formatBytes(info?.received.bytes ?? 0)}). digiKam opens when a batch finishes (if it is on this computer).</span>}
             </p>
           )}
           <p className="text-xs text-muted-foreground">

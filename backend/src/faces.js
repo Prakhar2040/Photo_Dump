@@ -128,12 +128,24 @@ async function embed(raw, info, rect) {
 async function readDigikam(archiveRoot) {
   const tmp = path.join(DATA_DIR, 'digikam-copy.db');
   await fs.mkdir(DATA_DIR, { recursive: true });
+  // No database here (digiKam runs on another computer and its file is not shared yet): the app works without it.
+  if (!(await fs.stat(DB_FILE).then(() => true, () => false))) return new Map();
   await fs.copyFile(DB_FILE, tmp);
   await fs.copyFile(`${DB_FILE}-wal`, `${tmp}-wal`).catch(() => fs.rm(`${tmp}-wal`, { force: true }));
   const db = new DatabaseSync(tmp, { readOnly: true });
   try {
     const norm = (p) => path.resolve(p).replace(/^[A-Za-z]:/, '').replace(/\\/g, '/').toLowerCase();
-    const root = db.prepare('select id, specificPath from AlbumRoots').all().find((r) => norm(archiveRoot) === String(r.specificPath).toLowerCase());
+    // digiKam may live on another computer (e.g. Windows) and see the archive under a different path, so match loosely:
+    // DIGIKAM_ALBUM_ROOT (a path or part of one), else the same path, else the same folder name, else the only collection.
+    const roots = db.prepare('select id, specificPath from AlbumRoots').all();
+    const slashes = (p) => String(p).split(String.fromCharCode(92)).join('/').replace(/\/+$/, '').toLowerCase();
+    const sp = (r) => slashes(r.specificPath);
+    const want = slashes(process.env.DIGIKAM_ALBUM_ROOT || '');
+    const folder = norm(archiveRoot).split('/').pop();
+    const root = (want && roots.find((r) => sp(r).endsWith(want)))
+      || roots.find((r) => norm(archiveRoot) === sp(r))
+      || roots.find((r) => sp(r).split('/').pop() === folder)
+      || (roots.length === 1 ? roots[0] : null);
     if (!root) return new Map();
     const rows = db.prepare(`
       select a.relativePath rp, i.name, p.property, p.value, t.name tname, t.pid
