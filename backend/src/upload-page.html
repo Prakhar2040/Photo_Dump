@@ -20,6 +20,8 @@
   .chip.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
   button.main { width:100%; padding:16px; border:0; border-radius:12px; background:var(--accent); color:var(--accent-fg); font-size:18px; font-weight:600; }
   button.main:disabled { opacity:.45; }
+  button.alt { width:100%; margin-top:10px; padding:14px; border:1px solid var(--accent); border-radius:12px; background:transparent; color:var(--accent); font-size:17px; font-weight:600; }
+  button.alt:disabled { opacity:.45; }
   .bar { height:10px; border-radius:6px; background:var(--line); overflow:hidden; margin:12px 0 6px; }
   .bar > i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
   .err { color:var(--bad); font-size:15px; }
@@ -33,13 +35,16 @@
 
   <div class="card">
     <input id="pick" type="file" accept="image/*,video/*" multiple hidden>
+    <input id="pickAll" type="file" multiple hidden>
     <button class="main" id="choose">Choose photos &amp; videos</button>
+    <button class="alt" id="chooseAll">Select ALL (no 100 limit)</button>
     <p id="last"></p>
-    <p id="hint">Tap Select, then Select All. You will see how many are new before anything is sent.</p>
+    <p id="hint">The first button uses Android's photo picker, which allows at most 100 at a time. For everything at once use <b>Select ALL</b>: open <b>Images</b> or <b>Videos</b> in the side menu, tap &#8942; then <b>Select all</b>. You will see how many are new before anything is sent.</p>
   </div>
 
   <div class="card" id="progress" hidden>
     <div class="big" id="count"></div>
+    <div class="chips" id="filter" hidden></div>
     <div class="bar"><i id="fill"></i></div>
     <p id="status"></p>
     <button class="main" id="go" hidden>Upload</button>
@@ -54,6 +59,16 @@
   var base = '/u/' + token;
   var $ = function (id) { return document.getElementById(id); };
   $('choose').onclick = function () { $('pick').click(); };
+  $('chooseAll').onclick = function () { $('pickAll').click(); };
+
+  // Only photos and videos the laptop accepts (same extensions as the server).
+  var PHOTO = ' jpg jpeg png webp gif tif tiff bmp heic heif dng ', VIDEO = ' mp4 mov m4v avi mkv 3gp mts ';
+  function kindOf(f) {
+    var i = f.name.lastIndexOf('.'), e = i < 0 ? '' : ' ' + f.name.slice(i + 1).toLowerCase() + ' ';
+    if (e && PHOTO.indexOf(e) >= 0) return 'photo';
+    if (e && VIDEO.indexOf(e) >= 0) return 'video';
+    return null;
+  }
 
   var wake = null;
   function keepAwake() { try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { wake = l; }); } catch (e) {} }
@@ -76,27 +91,52 @@
     $('last').textContent = 'Last upload: ' + when + ' · ' + l.lastCount + ' files';
   }).catch(function () {});
 
-  var queue = [], skipped = 0;
+  var queue = [], allNew = [], skipped = 0, mode = 'all';
   var mb = function (b) { return b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB'; };
 
   // Step 1: check what is new and show the number. Nothing is sent yet.
-  $('pick').onchange = async function () {
-    var files = Array.prototype.slice.call(this.files || []);
+  function onPick() {
+    var files = Array.prototype.slice.call(this.files || []).filter(function (f) { return kindOf(f); });
     this.value = '';
     if (!files.length) return;
+    check(files);
+  }
+  $('pick').onchange = onPick;
+  $('pickAll').onchange = onPick;
+
+  // Show the new files and let the user narrow them to photos or videos before sending.
+  function show() {
+    queue = allNew.filter(function (f) { return mode === 'all' || kindOf(f) === mode; });
+    var bytes = queue.reduce(function (s, f) { return s + f.size; }, 0);
+    $('count').textContent = queue.length + ' new';
+    $('status').textContent = skipped ? skipped + ' already sent will be skipped · ' + mb(bytes) : mb(bytes);
+    $('go').textContent = 'Upload ' + queue.length;
+    $('go').hidden = !queue.length;
+    var photos = allNew.filter(function (f) { return kindOf(f) === 'photo'; }).length, videos = allNew.length - photos;
+    var opts = [['all', 'All ' + allNew.length], ['photo', 'Photos ' + photos], ['video', 'Videos ' + videos]];
+    $('filter').innerHTML = '';
+    opts.forEach(function (o) {
+      var b = document.createElement('button');
+      b.className = 'chip' + (mode === o[0] ? ' on' : '');
+      b.textContent = o[1];
+      b.onclick = function () { mode = o[0]; show(); };
+      $('filter').appendChild(b);
+    });
+    $('filter').hidden = !(photos && videos);
+  }
+
+  async function check(files) {
     $('progress').hidden = false; $('go').hidden = true; $('errors').textContent = '';
     $('count').textContent = 'Checking…'; $('status').textContent = ''; $('fill').style.width = '0';
     try {
       var res = await fetch(base + '/check', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: files.map(function (f) { return { name: f.name, size: f.size, lastModified: f.lastModified }; }) }) });
-      queue = (await res.json()).need.map(function (i) { return files[i]; });
-      skipped = files.length - queue.length;
-      if (!queue.length) { $('count').textContent = 'Nothing new'; $('status').textContent = 'All ' + files.length + ' are already on the laptop.'; return; }
-      var bytes = queue.reduce(function (s, f) { return s + f.size; }, 0);
-      $('count').textContent = queue.length + ' new';
-      $('status').textContent = skipped ? skipped + ' already sent will be skipped · ' + mb(bytes) : mb(bytes);
-      $('go').textContent = 'Upload ' + queue.length;
-      $('go').hidden = false;
+      allNew = (await res.json()).need.map(function (i) { return files[i]; });
+      skipped = files.length - allNew.length;
+      mode = 'all';
+      $('filter').hidden = true;
+      if (!allNew.length) { queue = []; $('count').textContent = 'Nothing new'; $('status').textContent = 'All ' + files.length + ' are already on the laptop.'; return; }
+      show();
     } catch (e) {
       $('count').textContent = 'Stopped';
       $('errors').textContent = 'Could not reach the laptop: ' + e.message + '. Check you are on the same Wi-Fi, then try again.';
@@ -107,7 +147,7 @@
   $('go').onclick = async function () {
     var need = queue, person = 'Phone';
     if (!need.length) return;
-    $('go').hidden = true; $('choose').disabled = true; $('errors').textContent = '';
+    $('go').hidden = true; $('filter').hidden = true; $('choose').disabled = true; $('chooseAll').disabled = true; $('errors').textContent = '';
     keepAwake();
     try {
       var totalBytes = need.reduce(function (s, f) { return s + f.size; }, 0), doneBytes = 0, ok = 0, failed = [];
@@ -131,7 +171,7 @@
       $('count').textContent = 'Stopped';
       $('errors').textContent = 'Could not reach the laptop: ' + e.message + '. Check you are on the same Wi-Fi, then try again.';
     } finally {
-      $('choose').disabled = false;
+      $('choose').disabled = false; $('chooseAll').disabled = false;
       if (wake) { try { wake.release(); } catch (e) {} wake = null; }
     }
   };
