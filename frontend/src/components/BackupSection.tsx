@@ -92,7 +92,7 @@ export function BackupSection() {
           <ShieldCheck className="size-5 text-primary" />
           <div className="mr-auto">
             <p className="font-medium">Back up your archive</p>
-            <p className="text-sm text-muted-foreground">Copy everything to your backup drive and offsite folder. Nothing is copied until you confirm.</p>
+            <p className="text-sm text-muted-foreground">Copy to your backup drive and offsite folder.</p>
           </div>
           {destinations.length > 1 && (
             <Select value={targetId ?? undefined} onValueChange={setChosen}>
@@ -116,20 +116,19 @@ export function BackupSection() {
           <p className="flex items-center gap-2 text-sm">
             {pending === 0
               ? <><CheckCircle2 className="size-4 text-success" /> Everything is backed up.</>
-              : <><AlertTriangle className="size-4 text-warning" /> {pending.toLocaleString()} file{pending === 1 ? "" : "s"} added since the last backup ({formatBytes(destinations.find((t) => t.id === targetId)?.pendingBytes ?? 0)}). Nothing is copied until you confirm.</>}
+              : <><AlertTriangle className="size-4 text-warning" /> {pending.toLocaleString()} file{pending === 1 ? "" : "s"} new since the last backup ({formatBytes(destinations.find((t) => t.id === targetId)?.pendingBytes ?? 0)}).</>}
           </p>
         )}
 
         {noTarget && (
-          <p className="text-sm">No backup location is set yet. Type a folder on your SSD or another drive above, then Save.</p>
+          <p className="text-sm">No backup folder yet. Add one below and Save.</p>
         )}
 
         {settings && (
           <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <div className="space-y-1.5 sm:col-span-3">
-              <Label htmlFor="archive-path">Archive folder (where your photos live)</Label>
+              <Label htmlFor="archive-path">Archive folder</Label>
               <Input id="archive-path" placeholder="C:\Family Archive" value={form.archive} onChange={(e) => setPaths({ ...form, archive: e.target.value })} />
-              <p className="text-xs text-muted-foreground">Changing this only points the app at another folder; it does not move your photos. Copy the folder to the new drive first.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="backup-path">Backup folder</Label>

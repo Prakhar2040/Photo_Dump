@@ -73,3 +73,5 @@ The two only share files, so this works without any code link:
    - `DIGIKAM_ALBUM_ROOT` = (optional) the end of the collection's path as digiKam stores it, e.g. `Family Archive`. If unset, the app matches the same path, then the same folder name, then the only collection.
 5. Without a database file the app works normally; it just has no digiKam faces to read.
 6. Put the two face models on the Linux machine and set `MODELS_DIR` to their folder.
+
+Face detection: see [DIGIKAM.md](DIGIKAM.md).
