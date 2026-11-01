@@ -10,6 +10,14 @@ export interface PhoneUpload {
   last?: { total: number; newestPhotoAt: string | null; lastAt: string | null; lastCount: number };
 }
 
+export interface InboxInfo {
+  path: string;
+  auto: boolean;
+  exists: boolean;
+  suggested: string;
+  status: { running: boolean; total: number; done: number; copied: number; duplicates: number; failed: { name: string; error: string }[]; message: string; lastAt: string | null; waiting: number };
+}
+
 export type MediaKind = "photo" | "video";
 
 export interface Photo {
@@ -341,6 +349,15 @@ export const api = {
 
   async getPhoneUpload() {
     return call<PhoneUpload>("/upload");
+  },
+  async getInbox() {
+    return call<InboxInfo>("/inbox");
+  },
+  async setInbox(opts: { path?: string; auto?: boolean; create?: boolean }) {
+    return call<InboxInfo>("/inbox/settings", { method: "POST", body: opts });
+  },
+  async runInbox() {
+    return call<InboxInfo>("/inbox/run", { method: "POST" });
   },
   async startPhoneUpload() {
     return call<PhoneUpload>("/upload/start", { method: "POST" });

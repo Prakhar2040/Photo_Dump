@@ -21,6 +21,8 @@ const DEFAULTS = {
   lockedPeople: [], // when set, only these people are recognised: no other names, no suggestions, no "who is this?" groups
   eventFolderPattern: 'YYYY-MM Event Name',
   autoLaunchDigikam: true, // open digiKam after an import so it indexes new files and detects faces
+  inboxPath: '', // a folder whose photos are filed into Imports/<quarter> (see inbox.js)
+  inboxAuto: false,
   backupTargets: [], // { id, name, kind: 'backup' | 'offsite', path, mode: 'update' | 'mirror' }
 };
 
@@ -61,6 +63,8 @@ export async function updateSettings(patch) {
   for (const k of ['faceAcceptThreshold', 'faceSuggestThreshold']) if (Number.isFinite(patch[k])) next[k] = Math.min(0.95, Math.max(0.2, patch[k]));
   if (typeof patch.uploadToken === 'string' && /^[\w-]{12,64}$/.test(patch.uploadToken)) next.uploadToken = patch.uploadToken;
   if (typeof patch.autoLaunchDigikam === 'boolean') next.autoLaunchDigikam = patch.autoLaunchDigikam;
+  if (typeof patch.inboxPath === 'string') next.inboxPath = patch.inboxPath ? path.resolve(patch.inboxPath) : '';
+  if (typeof patch.inboxAuto === 'boolean') next.inboxAuto = patch.inboxAuto;
   if (typeof patch.eventFolderPattern === 'string') next.eventFolderPattern = patch.eventFolderPattern.slice(0, 80);
   if (Array.isArray(patch.backupTargets)) {
     next.backupTargets = patch.backupTargets.map((t, i) => ({

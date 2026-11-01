@@ -30,10 +30,14 @@ async function getLedger() {
 // Where the last upload stopped: when it happened and the newest photo that came across (by the phone's own file date).
 async function lastUpload() {
   const l = await getLedger();
-  let newest = 0, total = 0;
-  for (const k of Object.keys(l)) { const lm = Number(k.slice(k.lastIndexOf('|') + 1)); total++; if (lm > newest) newest = lm; }
+  let newest = 0, newestName = null, total = 0;
+  for (const k of Object.keys(l)) {
+    const at = k.lastIndexOf('|'), lm = Number(k.slice(at + 1));
+    total++;
+    if (lm > newest) { newest = lm; newestName = k.slice(0, k.lastIndexOf('|', at - 1)); }
+  }
   const last = [...(await getState()).imports].reverse().find((i) => String(i.source).startsWith('phone'));
-  return { total, newestPhotoAt: newest ? new Date(newest).toISOString() : null, lastAt: last?.at ?? null, lastCount: last?.copied ?? 0 };
+  return { total, newestName, newestPhotoAt: newest ? new Date(newest).toISOString() : null, lastAt: last?.at ?? null, lastCount: last?.copied ?? 0 };
 }
 
 async function getToken() {

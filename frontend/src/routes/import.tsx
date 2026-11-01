@@ -1,13 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Smartphone } from "lucide-react";
+import { FolderInput, Loader2, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatBytes, formatDate } from "@/services/api";
 import { PageHeader } from "@/components/AppShell";
 import { BackupSection } from "@/components/BackupSection";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
 
 export const Route = createFileRoute("/import")({
   head: () => ({
@@ -26,10 +29,83 @@ function ImportPage() {
     <>
       <PageHeader title="Import & Backup" subtitle="Bring new photos in, then keep copies safe." />
       <div className="space-y-6 px-6 py-6 md:px-10">
+        <InboxCard />
         <PhoneUploadCard />
         <BackupSection />
       </div>
     </>
+  );
+}
+
+function InboxCard() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["inbox"], queryFn: api.getInbox, refetchInterval: (query) => (query.state.data?.status.running ? 1000 : 5000) });
+  const info = q.data;
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const st = info?.status;
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+      setDraft(null);
+      await qc.invalidateQueries({ queryKey: ["inbox"] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const value = draft ?? info?.path ?? "";
+  const pct = st?.total ? Math.round((st.done / st.total) * 100) : 0;
+  return (
+    <div className="surface p-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <FolderInput className="size-5 text-primary" />
+        <div className="mr-auto">
+          <p className="font-medium">Inbox folder</p>
+          <p className="text-sm text-muted-foreground">Drop photos and videos in this folder (from a USB import, iCloud, a card…) and they are filed into the archive for you. Each one is checked against the original before it is removed from the inbox.</p>
+        </div>
+      </div>
+      <div className="mt-4 space-y-3 text-sm">
+        <div className="flex flex-wrap gap-2">
+          <Input className="min-w-[260px] flex-1" placeholder={info?.suggested ?? "C:\Users\you\Desktop\Inbox"} value={value} onChange={(e) => setDraft(e.target.value)} />
+          <Button size="sm" disabled={busy || !value.trim() || value === info?.path} onClick={() => void act(() => api.setInbox({ path: value }))}>Save folder</Button>
+          {!info?.path && info?.suggested && (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => api.setInbox({ path: info.suggested, create: true }))}>Create "{info.suggested}"</Button>
+          )}
+        </div>
+        {info?.path && !info.exists && <p className="text-destructive">That folder was not found. Check the path or the drive.</p>}
+        {info?.path && (
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2">
+              <Switch checked={info.auto} disabled={busy} onCheckedChange={(v) => void act(() => api.setInbox({ auto: v }))} />
+              Import automatically when files arrive
+            </label>
+            <Button size="sm" variant="outline" disabled={busy || !!st?.running || !info.exists} onClick={() => void act(api.runInbox)}>Import now</Button>
+            <span className="text-muted-foreground">{st?.running ? "Importing…" : `${st?.waiting ?? 0} waiting`}</span>
+          </div>
+        )}
+        {st?.running && (
+          <div className="space-y-1">
+            <Progress value={pct} />
+            <p className="text-muted-foreground">{st.done} of {st.total} · {st.message}</p>
+          </div>
+        )}
+        {!st?.running && st?.lastAt && (
+          <p className="text-muted-foreground">
+            Last run: {formatDate(st.lastAt)} · {st.copied} filed, {st.duplicates} already in the library (removed from the inbox). {st.message}
+          </p>
+        )}
+        {!!st?.failed.length && (
+          <div className="rounded border border-destructive/40 p-2 text-destructive">
+            <p className="font-medium">{st.failed.length} could not be filed and are still in the inbox:</p>
+            <ul className="list-disc pl-5">{st.failed.slice(0, 5).map((f) => <li key={f.name}>{f.name}: {f.error}</li>)}</ul>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">Works while Family Vault is running. Files keep their original dates; ones already in your library are removed from the inbox only when their content is identical.</p>
+      </div>
+    </div>
   );
 }
 

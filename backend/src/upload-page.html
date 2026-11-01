@@ -22,6 +22,9 @@
   button.main:disabled { opacity:.45; }
   button.alt { width:100%; margin-top:10px; padding:14px; border:1px solid var(--accent); border-radius:12px; background:transparent; color:var(--accent); font-size:17px; font-weight:600; }
   button.alt:disabled { opacity:.45; }
+  .pw { position:relative; }
+  .pw button { pointer-events:none; }
+  .pw input[type=file] { position:absolute; inset:0; width:100%; height:100%; opacity:0; font-size:0; cursor:pointer; }
   .bar { height:10px; border-radius:6px; background:var(--line); overflow:hidden; margin:12px 0 6px; }
   .bar > i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
   .err { color:var(--bad); font-size:15px; }
@@ -34,11 +37,11 @@
   <p>Photos and videos go straight to the laptop over Wi-Fi. Anything sent before is skipped.</p>
 
   <div class="card">
-    <input id="pick" type="file" accept="image/*,video/*" multiple hidden>
-    <input id="pickAll" type="file" multiple hidden>
-    <button class="main" id="choose">Choose photos &amp; videos</button>
-    <button class="alt" id="chooseAll">Select ALL (no 100 limit)</button>
+    <div class="pw"><button class="main" id="choose">Choose photos &amp; videos</button><input id="pick" type="file" accept="image/*,video/*" multiple aria-label="Choose photos and videos"></div>
+    <div class="pw"><button class="alt" id="chooseAll">Select ALL (no 100 limit)</button><input id="pickAll" type="file" multiple aria-label="Select all"></div>
+    <label style="display:flex;gap:10px;align-items:center;font-weight:400;margin:12px 0 0"><input type="checkbox" id="auto" style="width:20px;height:20px"> Start uploading right after I choose</label>
     <p id="last"></p>
+    <p id="dbg" style="font-size:13px"></p>
     <p id="hint">The first button uses Android's photo picker, which allows at most 100 at a time. For everything at once use <b>Select ALL</b>: open <b>Images</b> or <b>Videos</b> in the side menu, tap &#8942; then <b>Select all</b>. You will see how many are new before anything is sent.</p>
   </div>
 
@@ -55,11 +58,25 @@
 
 <script>
 (function () {
+  // Show any script error on the page itself, so a failure is visible on the phone.
+  window.onerror = function (msg, src, line) { var p = document.getElementById('progress'), e = document.getElementById('errors'); if (p && e) { p.hidden = false; e.textContent = 'Page error: ' + msg + ' (line ' + line + ')'; } };
+  window.onunhandledrejection = function (ev) { window.onerror(ev.reason && ev.reason.message || String(ev.reason), '', 0); };
   var token = location.pathname.split('/')[2];
   var base = '/u/' + token;
   var $ = function (id) { return document.getElementById(id); };
-  $('choose').onclick = function () { $('pick').click(); };
-  $('chooseAll').onclick = function () { $('pickAll').click(); };
+  // Small trail of what the page saw, so a picker that returns nothing is visible on the phone.
+  var dbgTimer = null, backAt = 0, handover = 0;
+  function dbg(t) { $('dbg').textContent = t; }
+  function watchPicker(input, label) {
+    dbg('Opened ' + label + '…');
+    var back = function () { backAt = Date.now(); dbg('Back from picker, waiting for the files…'); clearTimeout(dbgTimer); dbgTimer = setTimeout(function () { if ($('dbg').textContent.indexOf('Back from') === 0) dbg('Still waiting: your phone is preparing the files. This can take 30+ seconds, especially for videos. Keep this page open.'); }, 3000); };
+    window.addEventListener('focus', back, { once: true });
+    input.addEventListener('cancel', function () { dbg('Picker cancelled.'); }, { once: true });
+  }
+  $('pick').addEventListener('click', function () { watchPicker($('pick'), 'photo picker'); });
+  try { $('auto').checked = localStorage.getItem('autoUpload') === '1'; } catch (e) {}
+  $('auto').onchange = function () { try { localStorage.setItem('autoUpload', this.checked ? '1' : '0'); } catch (e) {} };
+  $('pickAll').addEventListener('click', function () { watchPicker($('pickAll'), 'file browser'); });
 
   // Only photos and videos the laptop accepts (same extensions as the server).
   var PHOTO = ' jpg jpeg png webp gif tif tiff bmp heic heif dng ', VIDEO = ' mp4 mov m4v avi mkv 3gp mts ';
@@ -85,24 +102,43 @@
     });
   }
 
-  fetch(base + '/last').then(function (r) { return r.json(); }).then(function (l) {
-    if (!l.total || !l.lastAt) return;
-    var when = new Date(l.lastAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-    $('last').textContent = 'Last upload: ' + when + ' · ' + l.lastCount + ' files';
-  }).catch(function () {});
+  // Where the last upload stopped, so the next pick can start from there (photos in the picker are sorted by date).
+  function showLast() {
+    fetch(base + '/last').then(function (r) { return r.json(); }).then(function (l) {
+      if (!l.total) return;
+      var fmt = { day: 'numeric', month: 'short', year: 'numeric' };
+      var t = l.total + ' files sent so far.';
+      if (l.lastAt) t = 'Last upload: ' + new Date(l.lastAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' · ' + l.lastCount + ' files. ' + t;
+      if (l.newestPhotoAt) t += ' Newest photo sent: ' + new Date(l.newestPhotoAt).toLocaleDateString(undefined, fmt) + (l.newestName ? ' (' + l.newestName + ')' : '') + '. Pick photos after that date.';
+      $('last').textContent = t;
+    }).catch(function () {});
+  }
+  showLast();
 
   var queue = [], allNew = [], skipped = 0, mode = 'all';
   var mb = function (b) { return b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB'; };
 
   // Step 1: check what is new and show the number. Nothing is sent yet.
   function onPick() {
-    var files = Array.prototype.slice.call(this.files || []).filter(function (f) { return kindOf(f); });
+    clearTimeout(dbgTimer);
+    var all = Array.prototype.slice.call(this.files || []);
+    handover = backAt ? Math.round((Date.now() - backAt) / 1000) : 0; backAt = 0;
+    dbg('Picker returned ' + all.length + ' files' + (handover ? ' (the phone took ' + handover + ' s to prepare them)' : '') + '.');
+    var files = all.filter(function (f) { return kindOf(f); });
     this.value = '';
-    if (!files.length) return;
+    if (!all.length) return;
+    $('progress').hidden = false; $('go').hidden = true; $('filter').hidden = true; $('errors').textContent = '';
+    if (!files.length) {
+      $('count').textContent = 'No photos or videos';
+      $('status').textContent = 'Got ' + all.length + ' files but none look like a photo or video (e.g. ' + all[0].name + ').';
+      return;
+    }
+    $('count').textContent = 'Reading ' + files.length + ' files…'; $('status').textContent = '';
     check(files);
   }
   $('pick').onchange = onPick;
   $('pickAll').onchange = onPick;
+  $('pick').oninput = function () { dbg('Picker input event: ' + (this.files ? this.files.length : 0) + ' files'); };
 
   // Show the new files and let the user narrow them to photos or videos before sending.
   function show() {
@@ -129,14 +165,17 @@
     $('progress').hidden = false; $('go').hidden = true; $('errors').textContent = '';
     $('count').textContent = 'Checking…'; $('status').textContent = ''; $('fill').style.width = '0';
     try {
+      var t0 = Date.now();
       var res = await fetch(base + '/check', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: files.map(function (f) { return { name: f.name, size: f.size, lastModified: f.lastModified }; }) }) });
       allNew = (await res.json()).need.map(function (i) { return files[i]; });
+      dbg('Phone prepared the files in ' + handover + ' s; laptop check took ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s.');
       skipped = files.length - allNew.length;
       mode = 'all';
       $('filter').hidden = true;
       if (!allNew.length) { queue = []; $('count').textContent = 'Nothing new'; $('status').textContent = 'All ' + files.length + ' are already on the laptop.'; return; }
       show();
+      if ($('auto').checked && queue.length) $('go').onclick();
     } catch (e) {
       $('count').textContent = 'Stopped';
       $('errors').textContent = 'Could not reach the laptop: ' + e.message + '. Check you are on the same Wi-Fi, then try again.';
@@ -147,7 +186,7 @@
   $('go').onclick = async function () {
     var need = queue, person = 'Phone';
     if (!need.length) return;
-    $('go').hidden = true; $('filter').hidden = true; $('choose').disabled = true; $('chooseAll').disabled = true; $('errors').textContent = '';
+    $('go').hidden = true; $('filter').hidden = true; $('choose').disabled = $('chooseAll').disabled = $('pick').disabled = $('pickAll').disabled = true; $('errors').textContent = '';
     keepAwake();
     try {
       var totalBytes = need.reduce(function (s, f) { return s + f.size; }, 0), doneBytes = 0, ok = 0, failed = [];
@@ -164,14 +203,16 @@
       }
       await fetch(base + '/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ copied: ok, skipped: skipped, person: person }) });
       queue = [];
+      showLast();
       $('count').textContent = 'Done: ' + ok + ' sent';
+      $('choose').textContent = 'Choose next batch';
       $('status').textContent = skipped ? skipped + ' already on the laptop were skipped.' : 'All sent.';
       if (failed.length) $('errors').textContent = failed.length + ' failed. Pick them again to retry. ' + failed.slice(0, 3).join(' | ');
     } catch (e) {
       $('count').textContent = 'Stopped';
       $('errors').textContent = 'Could not reach the laptop: ' + e.message + '. Check you are on the same Wi-Fi, then try again.';
     } finally {
-      $('choose').disabled = false; $('chooseAll').disabled = false;
+      $('choose').disabled = $('chooseAll').disabled = $('pick').disabled = $('pickAll').disabled = false;
       if (wake) { try { wake.release(); } catch (e) {} wake = null; }
     }
   };

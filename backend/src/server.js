@@ -16,6 +16,7 @@ import * as backup from './backup.js';
 import * as clutter from './classify.js';
 import { analyseFaces, loadSavedResults, watchDigikam } from './faces.js';
 import { startUpload, stopUpload, uploadInfo, resetToken } from './upload.js';
+import { startInbox, inboxInfo, setInbox, runInbox } from './inbox.js';
 import { nameGroup, undoBatch, dismissGroup, undoDismiss, getCover, setCover, clearCover } from './names.js';
 
 const PORT = Number(process.env.PORT || 4000);
@@ -166,6 +167,11 @@ app.get('/api/upload', h(async (_q, res) => res.json(await uploadInfo())));
 app.post('/api/upload/start', h(async (_q, res) => res.json(await startUpload(uploadHooks))));
 app.post('/api/upload/stop', h(async (_q, res) => { stopUpload(); res.json(await uploadInfo()); }));
 app.post('/api/upload/reset-token', h(async (_q, res) => { await resetToken(); const was = (await uploadInfo()).running; stopUpload(); res.json(was ? await startUpload(uploadHooks) : await uploadInfo()); }));
+
+// ---------- inbox folder (files itself into Imports/<quarter>) ----------
+app.get('/api/inbox', h(async (_q, res) => res.json(await inboxInfo())));
+app.post('/api/inbox/settings', h(async (req, res) => res.json(await setInbox(req.body ?? {}))));
+app.post('/api/inbox/run', h(async (_q, res) => { await runInbox(uploadHooks); res.status(202).json(await inboxInfo()); }));
 
 // ---------- duplicates (Clean Up tab) ----------
 app.post('/api/duplicates/scan', h(async (req, res) => {
@@ -496,5 +502,6 @@ app.listen(PORT, '127.0.0.1', async () => {
   console.log(`Family Vault API on http://127.0.0.1:${PORT}`);
   await loadSavedResults().catch(() => {});
   watchDigikam();
+  startInbox(uploadHooks);
   autoClutterScan(); // catches anything added while the app was closed
 });
